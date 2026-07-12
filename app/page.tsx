@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, ClipboardEvent, FormEvent, useEffect, useRef, useState } from "react";
+import { ChangeEvent, ClipboardEvent, FormEvent, KeyboardEvent, PointerEvent, useEffect, useRef, useState } from "react";
 import type { BlockAnnotation, FormatMode } from "../lib/contracts";
 import {
   blocksFromRichHtml,
@@ -30,6 +30,13 @@ const cjkFontOptions = [
   { id: "hei", label: "黑体", stack: '"Hiragino Sans GB", "Heiti SC", SimHei, sans-serif' },
   { id: "kai", label: "楷体", stack: '"Kaiti SC", STKaiti, KaiTi, serif' },
 ];
+
+const minimumSplitPercent = 28;
+const maximumSplitPercent = 72;
+
+function clampSplitPercent(value: number) {
+  return Math.min(maximumSplitPercent, Math.max(minimumSplitPercent, Math.round(value)));
+}
 
 const exampleText = `<p>长文本并不一定要一次读完。把内容拆成清楚的段落、先抓住每段的重点，再决定是否继续深入，通常会更轻松。</p><p>这个工具不会改写你的原文。它只重新组织阅读节奏，并用词首聚焦帮助你更快找到每个词的视觉落点。</p><p>你可以先使用本地模式；如果部署者配置了 AI 服务，也可以切换到 AI 模式获得更语义化的提示。</p>`;
 
@@ -71,6 +78,8 @@ export default function Home() {
   const inputRef = useRef<HTMLDivElement>(null);
   const outputRef = useRef<HTMLDivElement>(null);
   const readerOutputRef = useRef<HTMLDivElement>(null);
+  const pasteWorkspaceRef = useRef<HTMLFormElement>(null);
+  const fileSplitRef = useRef<HTMLDivElement>(null);
   const [surface, setSurface] = useState<Surface>("paste");
   const [preserveFormatting, setPreserveFormatting] = useState(true);
   const [inputHtml, setInputHtml] = useState(exampleText);
@@ -85,6 +94,7 @@ export default function Home() {
   const [readerKind, setReaderKind] = useState<"markdown" | "pdf" | null>(null);
   const [pdfUrl, setPdfUrl] = useState("");
   const [splitView, setSplitView] = useState(true);
+  const [splitPercent, setSplitPercent] = useState(50);
   const [activePage, setActivePage] = useState(1);
   const [status, setStatus] = useState("本地模式已准备好，不会上传或保存你的内容。");
   const [isFormatting, setIsFormatting] = useState(false);
@@ -129,10 +139,62 @@ export default function Home() {
     "--cjk-font": selectedCjkFont.stack,
   } as React.CSSProperties;
 
+  const splitStyle = {
+    "--split-left": `${splitPercent}fr`,
+    "--split-right": `${100 - splitPercent}fr`,
+  } as React.CSSProperties;
+
   const wordFocusOptions: WordFocusOptions = {
     enabled: wordFocusEnabled,
     fixation: wordFocusFixation / 100,
   };
+
+  function setSplitFromPointer(clientX: number, container: HTMLElement) {
+    const bounds = container.getBoundingClientRect();
+    const computedStyle = window.getComputedStyle(container);
+    const leftPadding = Number.parseFloat(computedStyle.paddingLeft) || 0;
+    const rightPadding = Number.parseFloat(computedStyle.paddingRight) || 0;
+    const availableWidth = bounds.width - leftPadding - rightPadding;
+    if (availableWidth <= 0) return;
+    setSplitPercent(clampSplitPercent(((clientX - bounds.left - leftPadding) / availableWidth) * 100));
+  }
+
+  function startSplitResize(event: PointerEvent<HTMLElement>, container: HTMLElement | null) {
+    if (!container || window.matchMedia("(max-width: 980px)").matches) return;
+    event.preventDefault();
+    document.body.classList.add("is-resizing-columns");
+    setSplitFromPointer(event.clientX, container);
+
+    const onPointerMove = (moveEvent: globalThis.PointerEvent) => setSplitFromPointer(moveEvent.clientX, container);
+    const stopResizing = () => {
+      document.body.classList.remove("is-resizing-columns");
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", stopResizing);
+      window.removeEventListener("pointercancel", stopResizing);
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", stopResizing);
+    window.addEventListener("pointercancel", stopResizing);
+  }
+
+  function handleSplitKeyboard(event: KeyboardEvent<HTMLElement>) {
+    const adjustments: Record<string, number> = { ArrowLeft: -5, ArrowDown: -5, ArrowRight: 5, ArrowUp: 5 };
+    if (event.key === "Home") {
+      event.preventDefault();
+      setSplitPercent(minimumSplitPercent);
+      return;
+    }
+    if (event.key === "End") {
+      event.preventDefault();
+      setSplitPercent(maximumSplitPercent);
+      return;
+    }
+    if (adjustments[event.key]) {
+      event.preventDefault();
+      setSplitPercent((current) => clampSplitPercent(current + adjustments[event.key]));
+    }
+  }
 
   function setEditorContent(nextHtml: string) {
     setInputHtml(nextHtml);
@@ -373,7 +435,7 @@ export default function Home() {
       <p className="status" aria-live="polite">{isFormatting ? `正在处理 · ${progress}%` : status}</p>
 
       {surface === "paste" ? (
-        <form className="workspace paste-workspace" onSubmit={handleFormat}>
+        <form className="workspace paste-workspace" ref={pasteWorkspaceRef} style={splitStyle} onSubmit={handleFormat}>
           <section className="panel source-panel">
             <div className="panel-heading">
               <div><p className="step">01 原文</p><h2>粘贴你想读的内容</h2></div>
@@ -400,7 +462,19 @@ export default function Home() {
             </div>
           </section>
 
-          <div className="workspace-divider" aria-hidden="true"><span>→</span></div>
+          <div
+            className="workspace-divider split-handle"
+            role="separator"
+            tabIndex={0}
+            aria-label="调整原文与便利阅读版的宽度"
+            aria-orientation="vertical"
+            aria-valuemin={minimumSplitPercent}
+            aria-valuemax={maximumSplitPercent}
+            aria-valuenow={splitPercent}
+            aria-valuetext={`原文 ${splitPercent}% ，便利阅读版 ${100 - splitPercent}%`}
+            onPointerDown={(event) => startSplitResize(event, pasteWorkspaceRef.current)}
+            onKeyDown={handleSplitKeyboard}
+          ><span aria-hidden="true"><i /><i /><i /></span></div>
 
           <section className="panel result-panel" style={readerStyle}>
             <div className="panel-heading">
@@ -436,8 +510,21 @@ export default function Home() {
                   <button type="button" className="secondary-button" disabled={!readerOutputHtml} onClick={() => readerOutputHtml && downloadMarkdown("focus-reader-file.md", readerOutputRef.current?.innerHTML ?? readerOutputHtml)}>下载 .md</button>
                 </div>
               </div>
-              <div className={splitView ? "split-reader" : "single-reader"}>
+              <div className={splitView ? "split-reader" : "single-reader"} ref={fileSplitRef} style={splitView ? splitStyle : undefined}>
                 {splitView && <section className="reader-pane source-file-pane" aria-label="原始文件">{readerKind === "pdf" && pdfUrl ? <object className="pdf-viewer" key={`${pdfUrl}-${activePage}`} data={`${pdfUrl}#page=${activePage}`} type="application/pdf"><p>浏览器无法显示 PDF。你仍可在右侧阅读已提取的文字。</p></object> : <div className="reading-document source-document" dangerouslySetInnerHTML={{ __html: readerSourceHtml }} />}</section>}
+                {splitView && <div
+                  className="file-split-handle split-handle"
+                  role="separator"
+                  tabIndex={0}
+                  aria-label="调整原始文件与便利阅读版的宽度"
+                  aria-orientation="vertical"
+                  aria-valuemin={minimumSplitPercent}
+                  aria-valuemax={maximumSplitPercent}
+                  aria-valuenow={splitPercent}
+                  aria-valuetext={`原始文件 ${splitPercent}% ，便利阅读版 ${100 - splitPercent}%`}
+                  onPointerDown={(event) => startSplitResize(event, fileSplitRef.current)}
+                  onKeyDown={handleSplitKeyboard}
+                ><span aria-hidden="true"><i /><i /><i /></span></div>}
                 <section className="reader-pane convenience-pane" aria-label="便利阅读版">
                   {readerOutputHtml ? <div ref={readerOutputRef} className="editor reading-document" contentEditable role="textbox" aria-multiline="true" aria-label="可编辑的文件便利阅读结果" suppressContentEditableWarning onScroll={syncActivePage} dangerouslySetInnerHTML={{ __html: readerOutputHtml }} /> : <div className="empty-reader"><span className="empty-number">↗</span><p>文件正在处理。大文件会按段落或页面分块生成。</p></div>}
                 </section>
