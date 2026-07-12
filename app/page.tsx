@@ -11,12 +11,13 @@ import {
   plainTextToBlocks,
   renderReadingDocument,
   type ClientReadingBlock,
+  type WordFocusOptions,
 } from "../lib/client-document";
 
 type Surface = "paste" | "reader";
 type Provider = { id: string; label: string; model: string };
 
-const exampleText = `<p>长文本并不一定要一次读完。把内容拆成清楚的段落、先抓住每段的重点，再决定是否继续深入，通常会更轻松。</p><p><strong>这个工具不会改写你的原文。</strong>它只重新组织阅读节奏，并用有限的强调帮助你先看见关键线索。</p><p>你可以先使用本地模式；如果部署者配置了 AI 服务，也可以切换到 AI 模式获得更语义化的重点标注。</p>`;
+const exampleText = `<p>长文本并不一定要一次读完。把内容拆成清楚的段落、先抓住每段的重点，再决定是否继续深入，通常会更轻松。</p><p>这个工具不会改写你的原文。它只重新组织阅读节奏，并用词首聚焦帮助你更快找到每个词的视觉落点。</p><p>你可以先使用本地模式；如果部署者配置了 AI 服务，也可以切换到 AI 模式获得更语义化的提示。</p>`;
 
 function batchesOf(blocks: ClientReadingBlock[], maxCharacters = 11_000) {
   const batches: ClientReadingBlock[][] = [];
@@ -77,7 +78,8 @@ export default function Home() {
   const [fontSize, setFontSize] = useState(19);
   const [lineHeight, setLineHeight] = useState(1.8);
   const [contentWidth, setContentWidth] = useState(740);
-  const [emphasis, setEmphasis] = useState(78);
+  const [wordFocusEnabled, setWordFocusEnabled] = useState(true);
+  const [wordFocusFixation, setWordFocusFixation] = useState(42);
 
   useEffect(() => {
     if (inputRef.current) inputRef.current.innerHTML = exampleText;
@@ -104,8 +106,12 @@ export default function Home() {
     "--reader-size": `${fontSize}px`,
     "--reader-line-height": String(lineHeight),
     "--reader-width": `${contentWidth}px`,
-    "--emphasis-strength": `${emphasis}%`,
   } as React.CSSProperties;
+
+  const wordFocusOptions: WordFocusOptions = {
+    enabled: wordFocusEnabled,
+    fixation: wordFocusFixation / 100,
+  };
 
   function setEditorContent(nextHtml: string) {
     setInputHtml(nextHtml);
@@ -146,14 +152,14 @@ export default function Home() {
     try {
       const annotations = await requestAnnotations(blocks);
       setProgress(100);
-      return { html: renderReadingDocument(blocks, annotations) };
+      return { html: renderReadingDocument(blocks, annotations, wordFocusOptions) };
     } catch (error) {
       if (formatMode === "ai") {
         setFormatMode("local");
         const fallbackMessage = `${error instanceof Error ? error.message : "AI 服务不可用。"} 已自动改用本地模式。`;
         const annotations = await requestAnnotations(blocks, "local");
         setProgress(100);
-        return { html: renderReadingDocument(blocks, annotations), fallbackMessage };
+        return { html: renderReadingDocument(blocks, annotations, wordFocusOptions), fallbackMessage };
       }
       throw error;
     } finally {
@@ -257,7 +263,7 @@ export default function Home() {
         if (!blocks.length) throw new Error("该 Markdown 文件没有可阅读的文字。");
         setReaderKind("markdown");
         setReaderBlocks(blocks);
-        setReaderSourceHtml(renderReadingDocument(blocks, []));
+        setReaderSourceHtml(renderReadingDocument(blocks, [], { enabled: false, fixation: 0.42 }));
         if (pdfUrl) setPdfUrl("");
         await processReaderBlocks(blocks, file.name);
         return;
@@ -325,7 +331,7 @@ export default function Home() {
         <div className="mode-selector">
           <span>处理方式</span>
           <button className={formatMode === "local" ? "selected" : ""} onClick={() => setFormatMode("local")}>本地规则</button>
-          <button className={formatMode === "ai" ? "selected" : ""} onClick={() => setFormatMode("ai")}>AI 语义重点</button>
+          <button className={formatMode === "ai" ? "selected" : ""} onClick={() => setFormatMode("ai")}>AI 语义提示</button>
           {formatMode === "ai" && (
             <select aria-label="AI 服务商" value={providerId} onChange={(event) => setProviderId(event.target.value)} disabled={!providers.length}>
               {providers.length ? providers.map((provider) => <option value={provider.id} key={provider.id}>{provider.label} · {provider.model}</option>) : <option>未配置服务商</option>}
@@ -336,7 +342,8 @@ export default function Home() {
           <label>字号 <input aria-label="字号" type="range" min="16" max="26" value={fontSize} onChange={(event) => setFontSize(Number(event.target.value))} /></label>
           <label>行距 <input aria-label="行距" type="range" min="1.45" max="2.2" step="0.05" value={lineHeight} onChange={(event) => setLineHeight(Number(event.target.value))} /></label>
           <label>宽度 <input aria-label="内容宽度" type="range" min="560" max="900" step="20" value={contentWidth} onChange={(event) => setContentWidth(Number(event.target.value))} /></label>
-          <label>重点 <input aria-label="高亮强度" type="range" min="35" max="100" value={emphasis} onChange={(event) => setEmphasis(Number(event.target.value))} /></label>
+          <button type="button" className={wordFocusEnabled ? "selected" : ""} onClick={() => setWordFocusEnabled((enabled) => !enabled)}>{wordFocusEnabled ? "词首聚焦开启" : "词首聚焦关闭"}</button>
+          <label>词首长度 <input aria-label="词首聚焦长度" type="range" min="30" max="60" value={wordFocusFixation} disabled={!wordFocusEnabled} onChange={(event) => setWordFocusFixation(Number(event.target.value))} /></label>
         </div>
       </section>
 

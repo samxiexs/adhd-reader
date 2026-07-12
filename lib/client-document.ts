@@ -6,6 +6,11 @@ export type ClientReadingBlock = ReadingBlock & {
   html: string;
 };
 
+export type WordFocusOptions = {
+  enabled: boolean;
+  fixation: number;
+};
+
 const allowedTags = new Set([
   "P",
   "BR",
@@ -244,8 +249,8 @@ function decorateHtml(html: string, highlights: { start: number; end: number }[]
         (range) => start + from >= range.start && start + to <= range.end,
       );
       if (highlighted && segment.trim()) {
-        const mark = doc.createElement("strong");
-        mark.dataset.focus = "true";
+        const mark = doc.createElement("span");
+        mark.dataset.semanticFocus = "true";
         mark.textContent = segment;
         fragment.append(mark);
       } else {
@@ -258,14 +263,93 @@ function decorateHtml(html: string, highlights: { start: number; end: number }[]
   return root.innerHTML;
 }
 
+type SegmentLike = {
+  segment: string;
+  index: number;
+  isWordLike?: boolean;
+};
+
+function fallbackWordSegments(text: string): SegmentLike[] {
+  const segments: SegmentLike[] = [];
+  const matcher = /[\p{L}\p{M}\p{N}]+(?:[’'-][\p{L}\p{M}\p{N}]+)*/gu;
+  let cursor = 0;
+  for (const match of text.matchAll(matcher)) {
+    const index = match.index ?? 0;
+    if (index > cursor) segments.push({ segment: text.slice(cursor, index), index: cursor });
+    segments.push({ segment: match[0], index, isWordLike: true });
+    cursor = index + match[0].length;
+  }
+  if (cursor < text.length) segments.push({ segment: text.slice(cursor), index: cursor });
+  return segments;
+}
+
+function wordSegments(text: string): SegmentLike[] {
+  const Segmenter = (Intl as unknown as {
+    Segmenter?: new (locale?: string | string[], options?: { granularity: "word" }) => {
+      segment(input: string): Iterable<SegmentLike>;
+    };
+  }).Segmenter;
+
+  if (!Segmenter) return fallbackWordSegments(text);
+  return Array.from(new Segmenter(undefined, { granularity: "word" }).segment(text));
+}
+
+function focusPrefixLength(word: string, fixation: number) {
+  const characters = Array.from(word);
+  if (characters.length < 2) return 0;
+  return Math.min(
+    characters.length - 1,
+    Math.max(1, Math.round(characters.length * fixation)),
+  );
+}
+
+/** Creates Bionic-style visual fixation points while keeping all source text intact. */
+function applyWordFocus(html: string, options: WordFocusOptions) {
+  if (!options.enabled) return html;
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(`<div>${html}</div>`, "text/html");
+  const root = doc.body.firstElementChild as HTMLElement;
+  const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const textNodes: Text[] = [];
+  while (walker.nextNode()) textNodes.push(walker.currentNode as Text);
+
+  for (const node of textNodes) {
+    if (!node.parentNode || !node.data.trim()) continue;
+    const fragment = doc.createDocumentFragment();
+    for (const segment of wordSegments(node.data)) {
+      if (!segment.isWordLike) {
+        fragment.append(doc.createTextNode(segment.segment));
+        continue;
+      }
+      const characters = Array.from(segment.segment);
+      const prefixLength = focusPrefixLength(segment.segment, options.fixation);
+      if (prefixLength === 0) {
+        fragment.append(doc.createTextNode(segment.segment));
+        continue;
+      }
+      const fixation = doc.createElement("strong");
+      fixation.dataset.wordFocus = "true";
+      fixation.textContent = characters.slice(0, prefixLength).join("");
+      fragment.append(fixation, doc.createTextNode(characters.slice(prefixLength).join("")));
+    }
+    node.parentNode.replaceChild(fragment, node);
+  }
+
+  return root.innerHTML;
+}
+
 export function renderReadingDocument(
   blocks: ClientReadingBlock[],
   annotations: BlockAnnotation[],
+  wordFocus: WordFocusOptions = { enabled: true, fixation: 0.42 },
 ) {
   const byId = new Map(annotations.map((annotation) => [annotation.id, annotation.highlights]));
   return blocks
     .map((block) => {
-      const decorated = decorateHtml(block.html, byId.get(block.id) ?? []);
+      const decorated = applyWordFocus(
+        decorateHtml(block.html, byId.get(block.id) ?? []),
+        wordFocus,
+      );
       const page = block.page ? ` data-page="${block.page}"` : "";
       return `<section class="reading-block reading-block--${block.kind}"${page}>${decorated}</section>`;
     })

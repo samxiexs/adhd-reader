@@ -69,7 +69,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, [contenteditabl
 .reading-block--heading h1 { font-size: 1.55em; }.reading-block--heading h2 { font-size: 1.28em; }.reading-block--heading h3, .reading-block--heading h4 { font-size: 1.08em; }
 .reading-block--quote { border-left: 3px solid var(--sun); padding-left: 1em; color: #53625b; }
 .reading-block--list ul, .reading-block--list ol { padding-left: 1.25em; }.reading-block--list li { margin: .45em 0; }
-.reading-document strong[data-focus="true"] { color: #133f33; font-weight: 750; background: linear-gradient(transparent calc(100% - .43em), color-mix(in srgb, var(--sun) var(--emphasis-strength, 78%), transparent) 0); padding: 0 .05em; }
+.reading-document strong[data-word-focus="true"] { color: #102f25; font-weight: 760; }
+.reading-document [data-semantic-focus="true"] { text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--mint-deep) 28%, transparent); text-decoration-thickness: .08em; text-underline-offset: .15em; }
 .reading-document a { color: var(--mint-deep); text-decoration-thickness: 1px; text-underline-offset: 3px; }
 .result-actions { margin-top: 26px; display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
 .primary-button, .secondary-button, .file-button { border-radius: 9px; padding: 10px 13px; font-size: 13px; font-weight: 750; border: 1px solid var(--mint-deep); transition: transform .15s ease, background .15s ease; }
