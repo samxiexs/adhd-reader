@@ -359,7 +359,7 @@ export default function Home() {
                 <button type="button" className={!preserveFormatting ? "active" : ""} onClick={resetToPlainText}>清洗文本</button>
               </div>
             </div>
-            <p className="panel-note">保留格式会留下粗体、斜体、链接和列表；清洗文本会统一版式。</p>
+            <p className="panel-note">保留格式会留下粗体、斜体、链接和列表；直接复制 PDF 时会自动合并视觉换行、断词连字符和丢失的句间空格。</p>
             <div
               className="editor source-editor"
               ref={inputRef}

@@ -38,6 +38,58 @@ function escapeHtml(value: string) {
     .replaceAll("'", "&#39;");
 }
 
+function isStructuralLine(value: string) {
+  return /^(?:#{1,6}\s+|\d+(?:\.\d+)*\.?\s+\S+|[-*+•]\s+|\([a-zA-Z0-9]+\)\s+)/u.test(value.trim());
+}
+
+function restoreSentenceSpacing(value: string) {
+  return value.replace(/([.!?。！？][)”’"']?)(?=[\p{Lu}])/gu, "$1 ");
+}
+
+/**
+ * Repairs common text/plain artifacts from PDF viewers without changing words
+ * or collapsing intentional blank-line paragraph boundaries.
+ */
+export function normalizeCopiedText(value: string) {
+  const lines = value.replaceAll("\r\n", "\n").replaceAll("\r", "\n").split("\n");
+  const paragraphs: string[] = [];
+  let current = "";
+
+  const flush = () => {
+    const text = restoreSentenceSpacing(current.replace(/\s{2,}/g, " ").trim());
+    if (text) paragraphs.push(text);
+    current = "";
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) {
+      flush();
+      continue;
+    }
+
+    if (isStructuralLine(line)) {
+      flush();
+      paragraphs.push(restoreSentenceSpacing(line));
+      continue;
+    }
+
+    if (!current) {
+      current = line;
+      continue;
+    }
+
+    if (/\p{L}-$/u.test(current) && /^\p{Ll}/u.test(line)) {
+      current = `${current.slice(0, -1)}${line}`;
+    } else {
+      current = `${current} ${line}`;
+    }
+  }
+  flush();
+
+  return paragraphs.join("\n\n");
+}
+
 function sanitizedHref(value: string | null) {
   if (!value) return null;
   try {
@@ -114,7 +166,7 @@ function cleanBlockHtml(element: Element, kind: ReadingBlockKind) {
 }
 
 export function plainTextToBlocks(text: string, page?: number, prefix = "block") {
-  const normalized = text.replaceAll("\r\n", "\n").trim();
+  const normalized = normalizeCopiedText(text).trim();
   if (!normalized) return [] as ClientReadingBlock[];
 
   return normalized
@@ -142,6 +194,14 @@ export function blocksFromRichHtml(html: string, preserveFormatting: boolean) {
 
   const parser = new DOMParser();
   const doc = parser.parseFromString(sanitizeRichHtml(html), "text/html");
+  const hasStructuralBlocks = Boolean(
+    doc.body.querySelector("p, li, ul, ol, h1, h2, h3, h4, blockquote"),
+  );
+  const hasInlineFormatting = Boolean(doc.body.querySelector("strong, em, a"));
+  if (!hasStructuralBlocks || (doc.body.querySelector("br") && !hasInlineFormatting)) {
+    return plainTextToBlocks(doc.body.innerText);
+  }
+
   const blocks: ClientReadingBlock[] = [];
   let index = 0;
 
