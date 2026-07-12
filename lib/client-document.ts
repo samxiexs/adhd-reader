@@ -398,6 +398,50 @@ function applyWordFocus(html: string, options: WordFocusOptions) {
   return root.innerHTML;
 }
 
+function scriptForCharacter(character: string) {
+  return /[\u3000-\u303f\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff\uac00-\ud7af]/u.test(character)
+    ? "cjk"
+    : "latin";
+}
+
+/** Wraps script runs so Latin and CJK families can be selected independently. */
+function applyScriptFonts(html: string) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(`<div>${html}</div>`, "text/html");
+  const root = doc.body.firstElementChild as HTMLElement;
+  const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const textNodes: Text[] = [];
+  while (walker.nextNode()) textNodes.push(walker.currentNode as Text);
+
+  for (const node of textNodes) {
+    if (!node.parentNode || !node.data) continue;
+    const fragment = doc.createDocumentFragment();
+    let run = "";
+    let script = scriptForCharacter(Array.from(node.data)[0] ?? "");
+    const flush = () => {
+      if (!run) return;
+      const span = doc.createElement("span");
+      span.dataset.script = script;
+      span.textContent = run;
+      fragment.append(span);
+      run = "";
+    };
+
+    for (const character of Array.from(node.data)) {
+      const nextScript = scriptForCharacter(character);
+      if (nextScript !== script) {
+        flush();
+        script = nextScript;
+      }
+      run += character;
+    }
+    flush();
+    node.parentNode.replaceChild(fragment, node);
+  }
+
+  return root.innerHTML;
+}
+
 export function renderReadingDocument(
   blocks: ClientReadingBlock[],
   annotations: BlockAnnotation[],
@@ -406,10 +450,10 @@ export function renderReadingDocument(
   const byId = new Map(annotations.map((annotation) => [annotation.id, annotation.highlights]));
   return blocks
     .map((block) => {
-      const decorated = applyWordFocus(
+      const decorated = applyScriptFonts(applyWordFocus(
         decorateHtml(block.html, byId.get(block.id) ?? []),
         wordFocus,
-      );
+      ));
       const page = block.page ? ` data-page="${block.page}"` : "";
       return `<section class="reading-block reading-block--${block.kind}"${page}>${decorated}</section>`;
     })

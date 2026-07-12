@@ -17,6 +17,20 @@ import {
 type Surface = "paste" | "reader";
 type Provider = { id: string; label: string; model: string };
 
+const latinFontOptions = [
+  { id: "literary", label: "Georgia 衬线", stack: 'Georgia, "Times New Roman", serif' },
+  { id: "system", label: "系统无衬线", stack: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Arial, sans-serif' },
+  { id: "humanist", label: "清晰人文", stack: '"Atkinson Hyperlegible", "Trebuchet MS", Arial, sans-serif' },
+  { id: "mono", label: "等宽", stack: 'ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace' },
+];
+
+const cjkFontOptions = [
+  { id: "song", label: "宋体", stack: '"Noto Serif SC", "Songti SC", SimSun, serif' },
+  { id: "pingfang", label: "苹方 / 微软雅黑", stack: '"PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif' },
+  { id: "hei", label: "黑体", stack: '"Hiragino Sans GB", "Heiti SC", SimHei, sans-serif' },
+  { id: "kai", label: "楷体", stack: '"Kaiti SC", STKaiti, KaiTi, serif' },
+];
+
 const exampleText = `<p>长文本并不一定要一次读完。把内容拆成清楚的段落、先抓住每段的重点，再决定是否继续深入，通常会更轻松。</p><p>这个工具不会改写你的原文。它只重新组织阅读节奏，并用词首聚焦帮助你更快找到每个词的视觉落点。</p><p>你可以先使用本地模式；如果部署者配置了 AI 服务，也可以切换到 AI 模式获得更语义化的提示。</p>`;
 
 function batchesOf(blocks: ClientReadingBlock[], maxCharacters = 11_000) {
@@ -80,6 +94,8 @@ export default function Home() {
   const [contentWidth, setContentWidth] = useState(740);
   const [wordFocusEnabled, setWordFocusEnabled] = useState(true);
   const [wordFocusFixation, setWordFocusFixation] = useState(42);
+  const [latinFont, setLatinFont] = useState("literary");
+  const [cjkFont, setCjkFont] = useState("song");
 
   useEffect(() => {
     if (inputRef.current) inputRef.current.innerHTML = exampleText;
@@ -102,10 +118,15 @@ export default function Home() {
     };
   }, [pdfUrl]);
 
+  const selectedLatinFont = latinFontOptions.find((font) => font.id === latinFont) ?? latinFontOptions[0];
+  const selectedCjkFont = cjkFontOptions.find((font) => font.id === cjkFont) ?? cjkFontOptions[0];
+
   const readerStyle = {
     "--reader-size": `${fontSize}px`,
     "--reader-line-height": String(lineHeight),
     "--reader-width": `${contentWidth}px`,
+    "--latin-font": selectedLatinFont.stack,
+    "--cjk-font": selectedCjkFont.stack,
   } as React.CSSProperties;
 
   const wordFocusOptions: WordFocusOptions = {
@@ -344,6 +365,8 @@ export default function Home() {
           <label>宽度 <input aria-label="内容宽度" type="range" min="560" max="900" step="20" value={contentWidth} onChange={(event) => setContentWidth(Number(event.target.value))} /></label>
           <button type="button" className={wordFocusEnabled ? "selected" : ""} onClick={() => setWordFocusEnabled((enabled) => !enabled)}>{wordFocusEnabled ? "词首聚焦开启" : "词首聚焦关闭"}</button>
           <label>词首长度 <input aria-label="词首聚焦长度" type="range" min="30" max="60" value={wordFocusFixation} disabled={!wordFocusEnabled} onChange={(event) => setWordFocusFixation(Number(event.target.value))} /></label>
+          <label>西文 <select aria-label="西文字体" value={latinFont} onChange={(event) => setLatinFont(event.target.value)}>{latinFontOptions.map((font) => <option value={font.id} key={font.id}>{font.label}</option>)}</select></label>
+          <label>中文 <select aria-label="中文字体" value={cjkFont} onChange={(event) => setCjkFont(event.target.value)}>{cjkFontOptions.map((font) => <option value={font.id} key={font.id}>{font.label}</option>)}</select></label>
         </div>
       </section>
 
